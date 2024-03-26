@@ -23,7 +23,7 @@ class ActivationFunction(ABC):
 class CostFunction(ABC):
 
     @abstractmethod
-    def f(self, x: NDArray, expected: NDArray) -> NDArray:
+    def f(self, x: NDArray, expected: NDArray) -> float:
         pass
 
     @abstractmethod
@@ -127,7 +127,7 @@ class NeuralNetwork:
         return a
 
     class BackPropagationResult(NamedTuple):
-        grad: list[NDArray]
+        grad: NDArray[NDArray]
         a: list[NDArray]
 
     def back_propagate(self, x: NDArray, expected: NDArray) -> BackPropagationResult:
@@ -149,4 +149,4 @@ class NeuralNetwork:
             transition = self.transitions[i + 1]
             error_list[i] = (transition.W.T @ error_list[i + 1]) * self.act.df(z_list[i])
 
-        return self.BackPropagationResult(grad=error_list[1:], a=a_list)
+        return self.BackPropagationResult(grad=np.array(error_list[1:]), a=a_list)
