@@ -20,6 +20,20 @@ class ActivationFunction(ABC):
         pass
 
 
+class Sigmoid(ActivationFunction):
+
+    def f(self, x: NDArray) -> NDArray:
+        return np.where(
+            x >= 0,
+            1 / (1 + np.exp(-x)),
+            np.exp(x) / (1 + np.exp(x))
+        )
+
+    def df(self, x: NDArray) -> NDArray:
+        fx = self.f(x)
+        return fx * (1 - fx)
+
+
 class CostFunction(ABC):
 
     @abstractmethod
@@ -29,6 +43,15 @@ class CostFunction(ABC):
     @abstractmethod
     def df(self, x: NDArray, expected: NDArray) -> NDArray:
         pass
+
+
+class Cost(CostFunction):
+
+    def f(self, x: NDArray, expected: NDArray) -> float:
+        return 0.5 * np.sum((x - expected)**2)
+
+    def df(self, x: NDArray, expected: NDArray) -> NDArray:
+        return x - expected
 
 
 class NNLayer:
@@ -42,10 +65,11 @@ class NNLayer:
 
     @staticmethod
     def _normalise(a: NDArray) -> NDArray:
-        return 2. * (a - np.min(a)) / np.ptp(a) - 1
+        sigmoid = Sigmoid()
+        return sigmoid(a)
 
     @classmethod
-    def make_from_normal(cls, inp_dim: int, out_dim: int, expected: float = 0, deviation: float = 0.5) -> Self:
+    def make_from_normal(cls, inp_dim: int, out_dim: int, expected: float = 0.5, deviation: float = 0.25) -> Self:
         W_un = np.random.normal(expected, deviation, (out_dim, inp_dim))
         b_un = np.random.normal(expected, deviation, (out_dim,))
         return cls(cls._normalise(W_un), cls._normalise(b_un))
@@ -120,33 +144,54 @@ class NeuralNetwork:
         return self.calculate(x)
 
     def calculate(self, x: NDArray) -> NDArray:
-        a = self.act(x)
+        a = x
         for transition in self.transitions:
             z = transition.W @ a + transition.b
             a = self.act(z)
         return a
 
     class BackPropagationResult(NamedTuple):
-        grad: NDArray[NDArray]
-        a: list[NDArray]
+        error_w: list[NDArray]
+        error_b: list[NDArray]
 
     def back_propagate(self, x: NDArray, expected: NDArray) -> BackPropagationResult:
-        z_list = [None] * self.l_count
-        a_list = [None] * self.l_count
-
-        a = self.act(x)
-        z_list[0] = x
-        a_list[0] = a
-        for i, transition in enumerate(self.transitions, start=1):
+        a = x
+        a_list = [a]
+        z_list = [a]
+        for transition in self.transitions:
             z = transition.W @ a + transition.b
             a = self.act(z)
-            z_list[i] = z
-            a_list[i] = a
+            z_list.append(z)
+            a_list.append(a)
 
-        error_list = [None] * self.l_count
-        error_list[-1] = self.cost.df(a_list[-1], expected)
-        for i in reversed(range(1, self.l_count - 1)):
-            transition = self.transitions[i + 1]
-            error_list[i] = (transition.W.T @ error_list[i + 1]) * self.act.df(z_list[i])
+        assert len(a_list) == len(z_list) == self.l_count
 
-        return self.BackPropagationResult(grad=np.array(error_list[1:]), a=a_list)
+        error_w = [np.empty(transition.W.shape) for transition in self.transitions]
+        error_b = [np.empty(transition.b.shape) for transition in self.transitions]
+
+        error = self.cost.df(a_list[-1], expected) * self.act.df(z_list[-1])
+        error_w[-1] = error[:, np.newaxis] @ a_list[-2][np.newaxis, :]
+        error_b[-1] = error
+        for i in range(self.l_count - 2, 0, -1):
+            error = self.transitions[i].W.T @ error * self.act.df(z_list[i])
+            error_w[i - 1] = error[:, np.newaxis] @ a_list[i - 1][np.newaxis, :]
+            error_b[i - 1] = error
+
+        return self.BackPropagationResult(error_w, error_b)
+
+    def back_propagate_batch(self, batch: tuple[NDArray, NDArray], n: float = 1.):
+        assert 0 <= n <= 1
+
+        accumulator_w = [np.zeros(transition.W.shape) for transition in self.transitions]
+        accumulator_b = [np.zeros(transition.b.shape) for transition in self.transitions]
+
+        for x, y in batch:
+            weights, biases = self.back_propagate(x, y)
+            for i, w in enumerate(weights):
+                accumulator_w[i] += w
+            for i, b in enumerate(biases):
+                accumulator_b[i] += b
+
+        for transition, weights, biases in zip(self.transitions, accumulator_w, accumulator_b):
+            transition.W -= (n / len(batch)) * weights
+            transition.b -= (n / len(batch)) * biases
