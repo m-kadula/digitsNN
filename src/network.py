@@ -34,6 +34,15 @@ class Sigmoid(ActivationFunction):
         return fx * (1 - fx)
 
 
+class ReLU(ActivationFunction):
+
+    def f(self, x: NDArray) -> NDArray:
+        return np.maximum(0., x)
+
+    def df(self, x: NDArray) -> NDArray:
+        return np.where(x > 0., 1., 0.)
+
+
 class CostFunction(ABC):
 
     @abstractmethod
@@ -63,16 +72,11 @@ class NNLayer:
     def copy(self):
         return self.__class__(self.W.copy(), self.b.copy())
 
-    @staticmethod
-    def _normalise(a: NDArray) -> NDArray:
-        sigmoid = Sigmoid()
-        return sigmoid(a)
-
     @classmethod
-    def make_from_normal(cls, inp_dim: int, out_dim: int, expected: float = 0.5, deviation: float = 0.25) -> Self:
-        W_un = np.random.normal(expected, deviation, (out_dim, inp_dim))
-        b_un = np.random.normal(expected, deviation, (out_dim,))
-        return cls(cls._normalise(W_un), cls._normalise(b_un))
+    def make_from_normal(cls, inp_dim: int, out_dim: int) -> Self:
+        W_un = np.random.randn(out_dim, inp_dim)
+        b_un = np.random.randn(out_dim)
+        return cls(W_un, b_un)
 
     @property
     def input_dim(self) -> int:
@@ -106,12 +110,11 @@ class NeuralNetwork:
     def new_network(cls,
                     layers: list[int],
                     activation_function: ActivationFunction,
-                    cost_function: CostFunction,
-                    expected: float = 0,
-                    deviation: float = 0.5) -> Self:
+                    cost_function: CostFunction
+                    ) -> Self:
         transitions = []
         for i, j in zip(layers[:-1], layers[1:]):
-            transitions.append(NNLayer.make_from_normal(i, j, expected, deviation))
+            transitions.append(NNLayer.make_from_normal(i, j))
         return cls(transitions, activation_function, cost_function)
 
     def save_to_file(self, file: Path):
@@ -134,8 +137,8 @@ class NeuralNetwork:
         i = 0
         while f'W{i}' in contents.files:
             assert f'b{i}' in contents.files
-            Wi = contents.files[f'W{i}']
-            bi = contents.files[f'b{i}']
+            Wi = contents[f'W{i}']
+            bi = contents[f'b{i}']
             transitions.append(NNLayer(Wi, bi))
             i += 1
         return cls(transitions, activation_function, cost_function)
