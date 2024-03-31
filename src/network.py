@@ -7,20 +7,24 @@ from numpy.typing import NDArray
 
 
 class ActivationFunction(ABC):
+    """Base class for activation functions"""
 
     def __call__(self, x: NDArray) -> NDArray:
         return self.f(x)
 
     @abstractmethod
     def f(self, x: NDArray) -> NDArray:
+        """f: M(i,j) -> M(i,j) where M[i, :] - vectors, M[:, j] - vector body"""
         pass
 
     @abstractmethod
     def df(self, x: NDArray) -> NDArray:
+        """(dy/dx): M(i,j) -> M(i,j) where M[i, :] - vectors, M[:, j] - vector body"""
         pass
 
 
 class Sigmoid(ActivationFunction):
+    """Sigmoid activation function"""
 
     def f(self, x: NDArray) -> NDArray:
         return np.where(
@@ -34,15 +38,6 @@ class Sigmoid(ActivationFunction):
         return fx * (1 - fx)
 
 
-class ReLU(ActivationFunction):
-
-    def f(self, x: NDArray) -> NDArray:
-        return np.maximum(0., x)
-
-    def df(self, x: NDArray) -> NDArray:
-        return np.where(x > 0., 1., 0.)
-
-
 class CostFunction(ABC):
 
     def __call__(self, x: NDArray, expected: NDArray) -> float:
@@ -50,14 +45,17 @@ class CostFunction(ABC):
 
     @abstractmethod
     def f(self, x: NDArray, expected: NDArray) -> float:
+        """f: M(i,j), M(i,j) -> R where M[i, :] - vectors, M[:, j] - vector body"""
         pass
 
     @abstractmethod
     def df(self, x: NDArray, expected: NDArray) -> NDArray:
+        """(dy/dx): M(i,j), M(i,j) -> M(i,j) where M[i, :] - vectors, M[:, j] - vector body"""
         pass
 
 
 class Cost(CostFunction):
+    """Standard cost function"""
 
     def f(self, x: NDArray, expected: NDArray) -> float:
         return 0.5 * np.sum((x - expected)**2)
@@ -67,53 +65,66 @@ class Cost(CostFunction):
 
 
 class NNLayer:
+    """Single layer of a neural network (f(x) = Wx + b)"""
 
     def __init__(self, w: NDArray, b: NDArray):
+        """Create a new NNLayer with given weights and biases"""
         self.W = w
         self.b = b
 
     def copy(self):
+        """Return a deep copy of self"""
         return self.__class__(self.W.copy(), self.b.copy())
 
     @classmethod
     def get_random(cls, inp_dim: int, out_dim: int) -> Self:
+        """Generate a new NNLayer with random weights and biases from N(0, 1)"""
         W_un = np.random.randn(out_dim, inp_dim)
         b_un = np.random.randn(out_dim)
         return cls(W_un, b_un)
 
     @property
     def input_dim(self) -> int:
+        """Input dimension for function f(x) = Wx + b"""
         return self.W.shape[1]
 
     @property
     def output_dim(self) -> int:
+        """Output dimension for function f(x) = Wx + b"""
         assert self.W.shape[0] == self.b.shape[0]
         return self.W.shape[0]
 
 
 class NeuralNetwork:
+    """Neural network training and evaluation class"""
 
     def __init__(self,
                  transitions: list[NNLayer],
                  activation_function: ActivationFunction,
                  cost_function: CostFunction):
-        assert len(transitions) >= 1
+        """Create a new neural network with given transitions, activation function and cost function"""
+        if len(transitions) < 1:
+            raise ValueError("At least one transition is required")
         for t1, t2 in zip(transitions[:-1], transitions[1:]):
-            assert t1.output_dim == t2.input_dim
+            if t1.output_dim != t2.input_dim:
+                raise ValueError(f"Transitions {t1} and {t2} are incompatible ({t1.output_dim=} != {t2.input_dim=})")
         self.transitions = transitions
         self.act = activation_function
         self.cost = cost_function
 
     @property
     def input_dim(self) -> int:
+        """Input dimension for the network"""
         return self.transitions[0].input_dim
 
     @property
     def output_dim(self) -> int:
+        """Output dimension for the network"""
         return self.transitions[-1].output_dim
 
     @property
     def l_count(self) -> int:
+        """Number of layers in the network"""
         return len(self.transitions) + 1
 
     @classmethod
@@ -122,20 +133,25 @@ class NeuralNetwork:
                     activation_function: ActivationFunction,
                     cost_function: CostFunction
                     ) -> Self:
+        """Create a new neural network with random weights and biases from N(0, 1)"""
         transitions = []
         for i, j in zip(layers[:-1], layers[1:]):
             transitions.append(NNLayer.get_random(i, j))
         return cls(transitions, activation_function, cost_function)
 
     def copy(self):
+        """Return a deep copy of self"""
         copied_transitions = [arr.copy() for arr in self.transitions]
         return self.__class__(copied_transitions, self.act, self.cost)
 
-    def save_to_file(self, file: Path | str):
+    def save_to_file(self, file: Path | str, overwrite: bool = False):
+        """Save the network to a file in .npz format"""
         if isinstance(file, str):
             file = Path(file).resolve()
-        assert file.suffix == '.npz'
-        assert not file.exists()
+        if file.suffix != '.npz':
+            raise ValueError("File must have .npz extension")
+        if not overwrite and file.exists():
+            raise FileExistsError(f"File {file} already exists")
         out = {}
         for i, transition in enumerate(self.transitions):
             out[f'W{i}'] = transition.W
@@ -147,9 +163,11 @@ class NeuralNetwork:
                        file: Path | str,
                        activation_function: ActivationFunction,
                        cost_function: CostFunction):
+        """Load the network from a file in .npz format"""
         if isinstance(file, str):
             file = Path(file).resolve()
-        assert file.suffix == '.npz'
+        if file.suffix != '.npz':
+            raise ValueError("File must have .npz extension")
         contents = np.load(file)
         transitions = []
         i = 0
@@ -162,9 +180,11 @@ class NeuralNetwork:
         return cls(transitions, activation_function, cost_function)
 
     def __call__(self, x: NDArray) -> NDArray:
+        """Evaluate the network on input x"""
         return self.calculate(x)
 
     def calculate(self, x: NDArray) -> NDArray:
+        """Evaluate the network on input x"""
         a = x
         for transition in self.transitions:
             z = transition.W @ a + transition.b
@@ -172,7 +192,12 @@ class NeuralNetwork:
         return a
 
     def backprop(self, x: NDArray, expected: NDArray) -> tuple[list[NDArray], list[NDArray]]:
-        assert len(x.shape) == len(expected.shape) == 2 and x.shape[0] == expected.shape[0]
+        """
+        Calculate gradients for weights and biases using backpropagation algorithm in batch mode.
+        x and y: M(i,j) where i - vector index, j - vector body
+        """
+        if not (len(x.shape) == len(expected.shape) == 2 and x.shape[0] == expected.shape[0]):
+            raise ValueError("x and expected must be 2D arrays with the same number of rows")
 
         a = x
         a_list = [a]
@@ -199,11 +224,16 @@ class NeuralNetwork:
         return sum_error_w, sum_error_b
 
     def update_network(self, weights: list[NDArray], biases: list[NDArray], scale: float, batch_size: int):
+        """Update the network weights and biases using given gradients and scale factor."""
         multiplier = scale / batch_size
         for transition, w, b in zip(self.transitions, weights, biases, strict=True):
             transition.W -= multiplier * w
             transition.b -= multiplier * b
 
     def backprop_and_apply(self, x: NDArray, expected: NDArray, scale: float):
+        """
+        Calculate gradients and update the network weights and biases using
+        backpropagation algorithm and given scale factor.
+        """
         w, b = self.backprop(x, expected)
         self.update_network(w, b, scale, x.shape[0])

@@ -8,12 +8,14 @@ from mnist import MNIST
 
 
 def _expand_digit_to_list(i: int) -> list:
+    """Converts digit to one-hot encoded list"""
     arr = [0.] * 10
     arr[i] = 1.
     return arr
 
 
 def array_to_digit(arr: NDArray) -> int:
+    """Converts one-hot encoded list to digit"""
     assert arr.shape == (10,)
     max_index = -1
     max_val = float('-inf')
@@ -25,6 +27,7 @@ def array_to_digit(arr: NDArray) -> int:
 
 
 class TrainingData(NamedTuple):
+    """Container for training and testing data from MNIST dataset"""
     training_images: NDArray
     training_labels: NDArray
     training_labels_digits: NDArray
@@ -33,8 +36,9 @@ class TrainingData(NamedTuple):
     testing_labels_digits: NDArray
 
 
-def load_mnist(file: Path) -> TrainingData:
-    mnist_data = MNIST(file)
+def load_mnist(directory: Path) -> TrainingData:
+    """Loads MNIST dataset from directory"""
+    mnist_data = MNIST(directory)
     mnist_data.gz = True
     training_images, training_labels = mnist_data.load_training()
     testing_images, testing_labels = mnist_data.load_testing()
@@ -50,6 +54,7 @@ def load_mnist(file: Path) -> TrainingData:
 
 
 def plot_images(images: NDArray, labels: Optional[list[str]] = None, shape: tuple[int, int] = (28, 28)):
+    """Plot images from array of images with optional labels"""
     if len(images.shape) == 1:
         images = images[np.newaxis, :]
     fig, axs = plt.subplots(1, images.shape[0], figsize=(20, 20))
