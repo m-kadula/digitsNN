@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Self
+from typing import Self, Iterable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -44,6 +44,9 @@ class ReLU(ActivationFunction):
 
 
 class CostFunction(ABC):
+
+    def __call__(self, x: NDArray, expected: NDArray) -> float:
+        return self.f(x, expected)
 
     @abstractmethod
     def f(self, x: NDArray, expected: NDArray) -> float:
@@ -109,17 +112,13 @@ class NeuralNetwork:
     def output_dim(self) -> int:
         return self.transitions[-1].output_dim
 
-    def copy(self):
-        copied_transitions = [arr.copy() for arr in self.transitions]
-        return self.__class__(copied_transitions, self.act, self.cost)
-
     @property
     def l_count(self) -> int:
         return len(self.transitions) + 1
 
     @classmethod
     def new_network(cls,
-                    layers: list[int],
+                    layers: Iterable[int],
                     activation_function: ActivationFunction,
                     cost_function: CostFunction
                     ) -> Self:
@@ -128,7 +127,13 @@ class NeuralNetwork:
             transitions.append(NNLayer.get_random(i, j))
         return cls(transitions, activation_function, cost_function)
 
-    def save_to_file(self, file: Path):
+    def copy(self):
+        copied_transitions = [arr.copy() for arr in self.transitions]
+        return self.__class__(copied_transitions, self.act, self.cost)
+
+    def save_to_file(self, file: Path | str):
+        if isinstance(file, str):
+            file = Path(file).resolve()
         assert file.suffix == '.npz'
         assert not file.exists()
         out = {}
@@ -139,9 +144,11 @@ class NeuralNetwork:
 
     @classmethod
     def load_from_file(cls,
-                       file: Path,
+                       file: Path | str,
                        activation_function: ActivationFunction,
                        cost_function: CostFunction):
+        if isinstance(file, str):
+            file = Path(file).resolve()
         assert file.suffix == '.npz'
         contents = np.load(file)
         transitions = []
