@@ -67,15 +67,21 @@ def plot_images(images: NDArray,
     num_cols = min(num_images, max_cols)
 
     fig, axs = plt.subplots(num_rows, num_cols, figsize=(20, 6))
-    axs = axs.flatten()
-
-    for i in range(num_images):
-        axs[i].imshow(images[i, :].reshape(shape), cmap='grey', vmin=0, vmax=1)
+    if num_rows == num_cols == 1:
+        axs.imshow(images[0, :].reshape(shape), cmap='grey', vmin=0, vmax=1)
         if labels is not None:
-            axs[i].set_title(labels[i])
+            axs.set_title(labels[0])
 
-    for i in range(num_images, len(axs)):
-        axs[i].axis('off')
+    else:
+        axs = axs.flatten()
+
+        for i in range(num_images):
+            axs[i].imshow(images[i, :].reshape(shape), cmap='grey', vmin=0, vmax=1)
+            if labels is not None:
+                axs[i].set_title(labels[i])
+
+        for i in range(num_images, len(axs)):
+            axs[i].axis('off')
 
     if title is not None:
         plt.suptitle(title)

@@ -189,7 +189,7 @@ class NeuralNetwork:
         for transition in self.transitions:
             z = np.einsum('kj,ij->ik', transition.W, a) + transition.b[np.newaxis, :]
             a = self.act(z)
-        return a
+        return a if len(x.shape) == 2 else a[0, :]
 
     def influence_map(self, x: NDArray, n: int, m: int) -> NDArray:
         """Calculate the influence map of the network on input x between layers n and m."""
