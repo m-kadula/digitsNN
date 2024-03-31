@@ -40,12 +40,12 @@ class Sigmoid(ActivationFunction):
 
 class CostFunction(ABC):
 
-    def __call__(self, x: NDArray, expected: NDArray) -> float:
+    def __call__(self, x: NDArray, expected: NDArray) -> NDArray:
         return self.f(x, expected)
 
     @abstractmethod
-    def f(self, x: NDArray, expected: NDArray) -> float:
-        """f: M(i,j), M(i,j) -> R where M[i, :] - vectors, M[:, j] - vector body"""
+    def f(self, x: NDArray, expected: NDArray) -> NDArray:
+        """f: M(i,j), M(i,j) -> M(i,) where M[i, :] - vectors, M[:, j] - vector body"""
         pass
 
     @abstractmethod
@@ -57,8 +57,8 @@ class CostFunction(ABC):
 class Cost(CostFunction):
     """Standard cost function"""
 
-    def f(self, x: NDArray, expected: NDArray) -> float:
-        return 0.5 * np.sum((x - expected)**2)
+    def f(self, x: NDArray, expected: NDArray) -> NDArray:
+        return 0.5 * np.sum((x - expected)**2, axis=1)
 
     def df(self, x: NDArray, expected: NDArray) -> NDArray:
         return x - expected
@@ -184,12 +184,28 @@ class NeuralNetwork:
         return self.calculate(x)
 
     def calculate(self, x: NDArray) -> NDArray:
-        """Evaluate the network on input x"""
-        a = x
+        """Evaluate the network on input x. x has to be M(i,j) where i - vector index, j - vector body, or M(j,)"""
+        a = x if len(x.shape) == 2 else x[np.newaxis, :]
         for transition in self.transitions:
-            z = transition.W @ a + transition.b
+            z = np.einsum('kj,ij->ik', transition.W, a) + transition.b[np.newaxis, :]
             a = self.act(z)
         return a
+
+    def influence_map(self, x: NDArray, n: int, m: int) -> NDArray:
+        """Calculate the influence map of the network on input x between layers n and m."""
+        if n >= m or m >= self.l_count or n < 0:
+            raise ValueError("Invalid layer indices")
+        a = x
+        influence = [np.empty((x.shape[0], *transition.W.shape)) for transition in self.transitions]
+        for i, transition in enumerate(self.transitions):
+            influence[i] = (transition.W[np.newaxis, :, :] * a[:, np.newaxis, :]
+                            + transition.b[np.newaxis, :, np.newaxis] / transition.input_dim)
+            a = self.act(np.einsum('kj,ij->ik', transition.W, a) + transition.b[np.newaxis, :])
+        acc = influence[m - 1]
+        for i in range(m - 2, n - 1, -1):
+            acc = np.einsum('nik,nkj->nij', acc, influence[i])
+        not_normalised = np.sum(acc, axis=0) / x.shape[0]
+        return (not_normalised - not_normalised.min()) / not_normalised.ptp()
 
     def backprop(self, x: NDArray, expected: NDArray) -> tuple[list[NDArray], list[NDArray]]:
         """

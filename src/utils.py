@@ -53,13 +53,33 @@ def load_mnist(directory: Path) -> TrainingData:
     )
 
 
-def plot_images(images: NDArray, labels: Optional[list[str]] = None, shape: tuple[int, int] = (28, 28)):
+def plot_images(images: NDArray,
+                labels: Optional[list[str]] = None,
+                shape: tuple[int, int] = (28, 28),
+                title: Optional[str] = None,
+                max_cols: int = 5):
     """Plot images from array of images with optional labels"""
     if len(images.shape) == 1:
         images = images[np.newaxis, :]
-    fig, axs = plt.subplots(1, images.shape[0], figsize=(20, 20))
-    for i in range(images.shape[0]):
+
+    num_images = images.shape[0]
+    num_rows = num_images // max_cols + (num_images % max_cols > 0)
+    num_cols = min(num_images, max_cols)
+
+    fig, axs = plt.subplots(num_rows, num_cols, figsize=(20, 6))
+    axs = axs.flatten()
+
+    for i in range(num_images):
         axs[i].imshow(images[i, :].reshape(shape), cmap='grey', vmin=0, vmax=1)
         if labels is not None:
             axs[i].set_title(labels[i])
+
+    for i in range(num_images, len(axs)):
+        axs[i].axis('off')
+
+    if title is not None:
+        plt.suptitle(title)
+
+    plt.subplots_adjust(hspace=0.5, wspace=0.5)
+
     plt.show()
