@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Self, NamedTuple
+from typing import Self
 
 import numpy as np
 from numpy.typing import NDArray
@@ -73,7 +73,7 @@ class NNLayer:
         return self.__class__(self.W.copy(), self.b.copy())
 
     @classmethod
-    def make_from_normal(cls, inp_dim: int, out_dim: int) -> Self:
+    def get_random(cls, inp_dim: int, out_dim: int) -> Self:
         W_un = np.random.randn(out_dim, inp_dim)
         b_un = np.random.randn(out_dim)
         return cls(W_un, b_un)
@@ -94,9 +94,20 @@ class NeuralNetwork:
                  transitions: list[NNLayer],
                  activation_function: ActivationFunction,
                  cost_function: CostFunction):
+        assert len(transitions) >= 1
+        for t1, t2 in zip(transitions[:-1], transitions[1:]):
+            assert t1.output_dim == t2.input_dim
         self.transitions = transitions
         self.act = activation_function
         self.cost = cost_function
+
+    @property
+    def input_dim(self) -> int:
+        return self.transitions[0].input_dim
+
+    @property
+    def output_dim(self) -> int:
+        return self.transitions[-1].output_dim
 
     def copy(self):
         copied_transitions = [arr.copy() for arr in self.transitions]
@@ -114,7 +125,7 @@ class NeuralNetwork:
                     ) -> Self:
         transitions = []
         for i, j in zip(layers[:-1], layers[1:]):
-            transitions.append(NNLayer.make_from_normal(i, j))
+            transitions.append(NNLayer.get_random(i, j))
         return cls(transitions, activation_function, cost_function)
 
     def save_to_file(self, file: Path):
@@ -153,48 +164,39 @@ class NeuralNetwork:
             a = self.act(z)
         return a
 
-    class BackPropagationResult(NamedTuple):
-        error_w: list[NDArray]
-        error_b: list[NDArray]
+    def backprop(self, x: NDArray, expected: NDArray) -> tuple[list[NDArray], list[NDArray]]:
+        assert len(x.shape) == len(expected.shape) == 2 and x.shape[0] == expected.shape[0]
 
-    def back_propagate(self, x: NDArray, expected: NDArray) -> BackPropagationResult:
         a = x
         a_list = [a]
-        z_list = [a]
+        z_list = []
         for transition in self.transitions:
-            z = transition.W @ a + transition.b
+            z = np.einsum('kj,ij->ik', transition.W, a) + transition.b[np.newaxis, :]
             a = self.act(z)
             z_list.append(z)
             a_list.append(a)
 
-        assert len(a_list) == len(z_list) == self.l_count
-
-        error_w = [np.empty(transition.W.shape) for transition in self.transitions]
-        error_b = [np.empty(transition.b.shape) for transition in self.transitions]
+        error_w = [np.empty((x.shape[0], *transition.W.shape)) for transition in self.transitions]
+        error_b = [np.empty((x.shape[0], *transition.b.shape)) for transition in self.transitions]
 
         error = self.cost.df(a_list[-1], expected) * self.act.df(z_list[-1])
-        error_w[-1] = error[:, np.newaxis] @ a_list[-2][np.newaxis, :]
+        error_w[-1] = np.einsum('ij,il->ijl', error, a_list[-2])
         error_b[-1] = error
         for i in range(self.l_count - 2, 0, -1):
-            error = self.transitions[i].W.T @ error * self.act.df(z_list[i])
-            error_w[i - 1] = error[:, np.newaxis] @ a_list[i - 1][np.newaxis, :]
+            error = np.einsum('kj,ij->ik', self.transitions[i].W.T, error) * self.act.df(z_list[i - 1])
+            error_w[i - 1] = np.einsum('ij,il->ijl', error, a_list[i - 1])
             error_b[i - 1] = error
 
-        return self.BackPropagationResult(error_w, error_b)
+        sum_error_w = [np.sum(cw, axis=0) for cw in error_w]
+        sum_error_b = [np.sum(cb, axis=0) for cb in error_b]
+        return sum_error_w, sum_error_b
 
-    def back_propagate_batch(self, batch: tuple[NDArray, NDArray], n: float = 1.):
-        assert 0 <= n <= 1
+    def update_network(self, weights: list[NDArray], biases: list[NDArray], scale: float, batch_size: int):
+        multiplier = scale / batch_size
+        for transition, w, b in zip(self.transitions, weights, biases, strict=True):
+            transition.W -= multiplier * w
+            transition.b -= multiplier * b
 
-        accumulator_w = [np.zeros(transition.W.shape) for transition in self.transitions]
-        accumulator_b = [np.zeros(transition.b.shape) for transition in self.transitions]
-
-        for x, y in batch:
-            weights, biases = self.back_propagate(x, y)
-            for i, w in enumerate(weights):
-                accumulator_w[i] += w
-            for i, b in enumerate(biases):
-                accumulator_b[i] += b
-
-        for transition, weights, biases in zip(self.transitions, accumulator_w, accumulator_b):
-            transition.W -= (n / len(batch)) * weights
-            transition.b -= (n / len(batch)) * biases
+    def backprop_and_apply(self, x: NDArray, expected: NDArray, scale: float):
+        w, b = self.backprop(x, expected)
+        self.update_network(w, b, scale, x.shape[0])
