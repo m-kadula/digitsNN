@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Self, Iterable
+from typing import Self, Iterable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -191,21 +191,31 @@ class NeuralNetwork:
             a = self.act(z)
         return a if len(x.shape) == 2 else a[0, :]
 
-    def influence_map(self, x: NDArray, n: int, m: int) -> NDArray:
-        """Calculate the influence map of the network on input x between layers n and m."""
-        if n >= m or m >= self.l_count or n < 0:
+    def gradient(self, x: NDArray, n: int = 0, m: Optional[int] = None) -> NDArray:
+        """Calculate the gradient of x between layers n and m. if x.shape like (n, v), calculate average of x's"""
+        if m is None:
+            m = self.l_count - 1
+        if not (0 <= n < m < self.l_count):
             raise ValueError("Invalid layer indices")
+        if len(x.shape) == 1:
+            x = x[np.newaxis, :]
+
+        transitions = self.transitions[n:m]
         a = x
-        influence = [np.empty((x.shape[0], *transition.W.shape)) for transition in self.transitions]
-        for i, transition in enumerate(self.transitions):
-            influence[i] = (transition.W[np.newaxis, :, :] * a[:, np.newaxis, :]
-                            + transition.b[np.newaxis, :, np.newaxis] / transition.input_dim)
-            a = self.act(np.einsum('kj,ij->ik', transition.W, a) + transition.b[np.newaxis, :])
-        acc = influence[m - 1]
-        for i in range(m - 2, n - 1, -1):
-            acc = np.einsum('nik,nkj->nij', acc, influence[i])
-        not_normalised = np.sum(acc, axis=0) / x.shape[0]
-        return (not_normalised - not_normalised.min()) / not_normalised.ptp()
+        a_list = [a]
+        z_list = [a]
+        for transition in transitions:
+            z = np.einsum('kj,ij->ik', transition.W, a) + transition.b[np.newaxis, :]
+            a = self.act(z)
+            z_list.append(z)
+            a_list.append(a)
+
+        error = np.einsum('ni,ij->nij', self.act.df(z_list[-1]), np.eye(z_list[-1].shape[1]))
+        for i in range(len(transitions) - 1, 0, -1):
+            error = np.einsum('ik,nkj->nij', transitions[i].W.T, error) * self.act.df(z_list[i])[..., np.newaxis]
+        error = np.einsum('ik,nkj->nij', transitions[0].W.T, error)
+
+        return (np.sum(error, axis=0) / error.shape[0]).T
 
     def backprop(self, x: NDArray, expected: NDArray) -> tuple[list[NDArray], list[NDArray]]:
         """
